@@ -38,6 +38,7 @@
     #include <fcntl.h>
     #include <errno.h>
     #include <sys/time.h>
+    #include <time.h> // For clock_gettime and CLOCK_MONOTONIC
     #include <signal.h> // For signal handling
     typedef int socket_t;
     #define SOCKET_ERROR_CODE -1
