@@ -1,0 +1,155 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - "v*" # 当推送以 v 开头的标签时触发
+
+jobs:
+  build:
+    name: Build ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux x64
+            os: ubuntu-20.04
+            asset_name: tcping-linux-x64
+            executable_suffix: ""
+          - name: macOS x64
+            os: macos-12
+            asset_name: tcping-macos-x64
+            executable_suffix: ""
+          - name: macOS ARM64
+            os: macos-14
+            asset_name: tcping-macos-arm64
+            executable_suffix: ""
+          - name: Windows x64
+            os: windows-2022
+            asset_name: tcping-windows-x64
+            executable_suffix: ".exe"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup build tools (Ubuntu)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential g++
+
+      - name: Setup build tools (Windows)
+        if: runner.os == 'Windows'
+        uses: microsoft/setup-msbuild@v1.1
+
+      - name: Build (Linux/macOS)
+        if: runner.os != 'Windows'
+        working-directory: tcping-src
+        run: |
+          chmod +x build.sh
+          ./build.sh
+          ls -la tcping
+
+      - name: Build (Windows)
+        if: runner.os == 'Windows'
+        working-directory: tcping-src
+        shell: cmd
+        run: |
+          call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
+          cl /EHsc /O2 /std:c++11 /D "OS_WINDOWS" /D "_CRT_SECURE_NO_WARNINGS" /I. main.cpp tcping.cpp base64.cpp tee.cpp ws-util.cpp /link ws2_32.lib /out:tcping.exe
+          dir tcping.exe
+
+      - name: Test executable
+        working-directory: tcping-src
+        run: |
+          if [ "$RUNNER_OS" == "Windows" ]; then
+            ./tcping.exe -v || echo "Version check completed"
+          else
+            ./tcping -v || echo "Version check completed"
+          fi
+        shell: bash
+
+      - name: Prepare release asset
+        working-directory: tcping-src
+        run: |
+          if [ "$RUNNER_OS" == "Windows" ]; then
+            cp tcping.exe ${{ matrix.asset_name }}${{ matrix.executable_suffix }}
+          else
+            cp tcping ${{ matrix.asset_name }}${{ matrix.executable_suffix }}
+          fi
+        shell: bash
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset_name }}
+          path: tcping-src/${{ matrix.asset_name }}${{ matrix.executable_suffix }}
+
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-20.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+
+      - name: Prepare release
+        run: |
+          mkdir release
+          find artifacts/ -type f -exec cp {} release/ \;
+          cd release
+
+          # Generate checksums
+          sha256sum * > SHA256SUMS.txt
+
+          # List files
+          ls -la
+
+      - name: Get tag name
+        id: tag
+        run: echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+      - name: Create release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: TCPING ${{ steps.tag.outputs.tag }}
+          body: |
+            ## TCPING Cross-Platform Release ${{ steps.tag.outputs.tag }}
+
+            ### Downloads
+            - **Linux (x64)**: `tcping-linux-x64`
+            - **macOS (Intel)**: `tcping-macos-x64` 
+            - **macOS (Apple Silicon)**: `tcping-macos-arm64`
+            - **Windows (x64)**: `tcping-windows-x64.exe`
+
+            ### Usage
+            ```bash
+            # Make executable (Linux/macOS)
+            chmod +x tcping-*
+
+            # Basic usage
+            ./tcping google.com 80
+
+            # Show help
+            ./tcping --help
+            ```
+
+            ### Verification
+            Use `SHA256SUMS.txt` to verify file integrity.
+
+            **Build date**: $(date -u)
+            **Commit**: ${{ github.sha }}
+          files: release/*
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

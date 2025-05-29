@@ -1,0 +1,253 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - "v*" # 当推送以 v 开头的标签时触发（如 v1.0.0）
+
+jobs:
+  build:
+    name: Build on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          # Linux 构建
+          - os: ubuntu-latest
+            target: linux-x64
+            artifact_name: tcping
+            asset_name: tcping-linux-x64
+          # macOS 构建 (Intel)
+          - os: macos-13
+            target: macos-x64
+            artifact_name: tcping
+            asset_name: tcping-macos-x64
+          # macOS 构建 (Apple Silicon)
+          - os: macos-latest
+            target: macos-arm64
+            artifact_name: tcping
+            asset_name: tcping-macos-arm64
+          # Windows 构建
+          - os: windows-latest
+            target: windows-x64
+            artifact_name: tcping.exe
+            asset_name: tcping-windows-x64.exe
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup build environment (Linux/macOS)
+        if: runner.os != 'Windows'
+        run: |
+          if [[ "$RUNNER_OS" == "Linux" ]]; then
+            sudo apt-get update
+            sudo apt-get install -y build-essential g++
+          elif [[ "$RUNNER_OS" == "macOS" ]]; then
+            # macOS 已经预安装了 Xcode 命令行工具
+            xcode-select --install 2>/dev/null || true
+          fi
+
+      - name: Setup build environment (Windows)
+        if: runner.os == 'Windows'
+        uses: microsoft/setup-msbuild@v2
+        with:
+          msbuild-architecture: x64
+
+      - name: Build (Linux/macOS)
+        if: runner.os != 'Windows'
+        working-directory: tcping-src
+        run: |
+          chmod +x build.sh
+          ./build.sh
+          # 验证构建结果
+          ls -la tcping
+          file tcping
+
+      - name: Build (Windows)
+        if: runner.os == 'Windows'
+        working-directory: tcping-src
+        run: |
+          # 设置编译环境
+          call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
+
+          # 编译
+          cl /EHsc /O2 /std:c++11 /D "OS_WINDOWS" /I. main.cpp tcping.cpp base64.cpp tee.cpp ws-util.cpp /link ws2_32.lib /out:tcping.exe
+
+          # 验证构建结果
+          dir tcping.exe
+        shell: cmd
+
+      - name: Create version info
+        working-directory: tcping-src
+        run: |
+          echo "TCPING_VERSION=${GITHUB_REF#refs/tags/}" >> version_info.txt
+          echo "BUILD_DATE=$(date -u +%Y-%m-%d\ %H:%M:%S)" >> version_info.txt
+          echo "BUILD_OS=${{ matrix.target }}" >> version_info.txt
+          echo "GIT_COMMIT=${GITHUB_SHA}" >> version_info.txt
+
+      - name: Test binary
+        working-directory: tcping-src
+        run: |
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            ./tcping.exe --help || echo "Help command executed"
+          else
+            ./tcping --help || echo "Help command executed"
+          fi
+
+      - name: Prepare artifact
+        working-directory: tcping-src
+        run: |
+          mkdir -p ../release
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            cp tcping.exe ../release/${{ matrix.asset_name }}
+          else
+            cp tcping ../release/${{ matrix.asset_name }}
+          fi
+          cp version_info.txt ../release/
+          cp README.md ../release/ 2>/dev/null || echo "README.md not found"
+          cp gpl-2.0.txt ../release/ 2>/dev/null || echo "gpl-2.0.txt not found"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset_name }}
+          path: release/
+
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+
+      - name: Prepare release assets
+        run: |
+          mkdir -p release_assets
+
+          # 移动所有构建的二进制文件到 release_assets 目录
+          find artifacts/ -name "tcping*" -type f -executable -o -name "*.exe" | while read file; do
+            cp "$file" release_assets/
+          done
+
+          # 复制文档文件
+          cp artifacts/*/README.md release_assets/ 2>/dev/null || echo "README.md not found"
+          cp artifacts/*/gpl-2.0.txt release_assets/ 2>/dev/null || echo "gpl-2.0.txt not found"
+
+          # 创建 SHA256 校验和文件
+          cd release_assets
+          for file in tcping*; do
+            if [[ -f "$file" ]]; then
+              sha256sum "$file" >> SHA256SUMS.txt
+            fi
+          done
+
+          ls -la
+
+      - name: Extract tag name
+        id: tag
+        run: echo "TAG_NAME=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ steps.tag.outputs.TAG_NAME }}
+          release_name: TCPING ${{ steps.tag.outputs.TAG_NAME }}
+          body: |
+            ## TCPING Cross-Platform Release ${{ steps.tag.outputs.TAG_NAME }}
+
+            ### 🚀 Features
+            - Cross-platform TCP connectivity testing tool
+            - Support for Windows, Linux, and macOS
+            - HTTP/HTTPS probing capabilities
+            - IPv4/IPv6 support
+            - Jitter measurement
+            - Proxy support
+
+            ### 📦 Downloads
+            Choose the appropriate binary for your platform:
+
+            - **Windows (x64)**: `tcping-windows-x64.exe`
+            - **Linux (x64)**: `tcping-linux-x64`
+            - **macOS (Intel)**: `tcping-macos-x64`
+            - **macOS (Apple Silicon)**: `tcping-macos-arm64`
+
+            ### 📋 Usage
+            ```bash
+            # Basic usage
+            ./tcping google.com 80
+
+            # Continuous ping
+            ./tcping -t google.com 443
+
+            # HTTP mode
+            ./tcping -h example.com
+
+            # Show help
+            ./tcping --help
+            ```
+
+            ### 🔐 Verification
+            Verify the integrity of downloaded files using the provided `SHA256SUMS.txt`.
+
+            ### 📝 Changes
+            See commit history for detailed changes since the last release.
+
+            ---
+
+            **Build Information:**
+            - Built on: $(date -u +%Y-%m-%d\ %H:%M:%S) UTC
+            - Commit: ${{ github.sha }}
+          draft: false
+          prerelease: false
+
+      - name: Upload Release Assets
+        run: |
+          cd release_assets
+          for file in *; do
+            if [[ -f "$file" ]]; then
+              echo "Uploading $file..."
+              curl \
+                -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+                -H "Content-Type: application/octet-stream" \
+                --data-binary @"$file" \
+                "https://uploads.github.com/repos/${{ github.repository }}/releases/${{ steps.create_release.outputs.id }}/assets?name=$file"
+            fi
+          done
+
+  # 可选：自动化测试步骤
+  test:
+    name: Integration Test
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download Linux artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: tcping-linux-x64
+          path: ./
+
+      - name: Make executable
+        run: chmod +x tcping-linux-x64
+
+      - name: Test basic functionality
+        run: |
+          # 测试帮助信息
+          ./tcping-linux-x64 --help
+
+          # 测试版本信息
+          ./tcping-linux-x64 -v || true
+
+          # 测试基本连接（超时设置较短）
+          timeout 10s ./tcping-linux-x64 -n 1 -w 2 google.com 80 || echo "Connection test completed"
