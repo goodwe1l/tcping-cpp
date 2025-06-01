@@ -1,0 +1,119 @@
+name: Cross-Platform Build with Zig
+
+on:
+  push:
+    branches: [main, master, develop]
+    tags:
+      - "v*"
+  pull_request:
+    branches: [main, master, develop]
+
+jobs:
+  cross-compile:
+    name: Cross-compile with Zig
+    runs-on: ubuntu-22.04
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Zig
+        run: |
+          wget -q https://ziglang.org/download/0.14.1/zig-linux-x86_64-0.14.1.tar.xz
+          tar -xf zig-linux-x86_64-0.14.1.tar.xz
+          sudo mv zig-linux-x86_64-0.14.1 /opt/zig
+          sudo ln -sf /opt/zig/zig /usr/local/bin/zig
+          zig version
+
+      - name: Cross-compile all platforms
+        run: |
+          cd tcping-src
+          chmod +x cross-compile-all.sh
+          ./cross-compile-all.sh
+
+      - name: Verify binaries
+        run: |
+          cd tcping-src/cross-build
+          echo "📁 Generated files:"
+          ls -la
+          echo ""
+          echo "🔍 File types:"
+          for file in *; do
+            if [[ -f "$file" && "$file" != "*.pdb" ]]; then
+              echo "  $file:"
+              file $file | sed 's/^/    /'
+            fi
+          done
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: tcping-cross-compiled-binaries
+          path: |
+            tcping-src/cross-build/tcping-linux-x64
+            tcping-src/cross-build/tcping-macos-x64
+            tcping-src/cross-build/tcping-macos-arm64
+            tcping-src/cross-build/tcping-windows-x64.exe
+          retention-days: 30
+
+  release:
+    name: Create Release
+    needs: cross-compile
+    runs-on: ubuntu-22.04
+    if: startsWith(github.ref, 'refs/tags/v')
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: tcping-cross-compiled-binaries
+          path: ./binaries
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            binaries/tcping-linux-x64
+            binaries/tcping-macos-x64
+            binaries/tcping-macos-arm64
+            binaries/tcping-windows-x64.exe
+          body: |
+            ## 🚀 TCPing Cross-Platform Release
+            
+            This release includes pre-compiled binaries for multiple platforms:
+            
+            ### 📦 Available Binaries
+            - **Linux x64**: `tcping-linux-x64` (ELF 64-bit)
+            - **macOS x64**: `tcping-macos-x64` (Intel Macs)
+            - **macOS ARM64**: `tcping-macos-arm64` (Apple Silicon)
+            - **Windows x64**: `tcping-windows-x64.exe` (PE32+)
+            
+            ### 🛠️ Cross-Compilation
+            All binaries are cross-compiled using **Zig** for maximum compatibility.
+            
+            ### 📋 Usage
+            ```bash
+            # Linux
+            ./tcping-linux-x64 google.com 80
+            
+            # macOS
+            ./tcping-macos-x64 google.com 80
+            ./tcping-macos-arm64 google.com 80
+            
+            # Windows
+            tcping-windows-x64.exe google.com 80
+            ```
+            
+            ### 🔧 Build Information
+            - **Compiler**: Zig 0.14.1
+            - **C++ Standard**: C++11
+            - **Optimization**: -O2
+            - **Build Date**: ${{ github.event.head_commit.timestamp }}
+            - **Commit**: ${{ github.sha }}
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

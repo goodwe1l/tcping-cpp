@@ -49,7 +49,7 @@ static struct ErrorEntry {
         pcMessage(pc) {
     }
 
-    bool operator<(const ErrorEntry& rhs) {
+    bool operator<(const ErrorEntry& rhs) const {
         return nID < rhs.nID;
     }
 } gaErrorList[] = {
@@ -146,6 +146,9 @@ static struct ErrorEntry {
     ErrorEntry(ENOTEMPTY,          "Directory not empty")
 #endif
 };
+
+// 计算错误消息数组的大小
+const size_t kNumMessages = sizeof(gaErrorList) / sizeof(gaErrorList[0]);
 
 
 //// WSAGetLastErrorMessage ////////////////////////////////////////////

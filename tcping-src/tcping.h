@@ -1,7 +1,4 @@
 
-// 前向声明
-class tee;
-
 #include "tee.h"
 
 extern int DoWinsock_Single(
@@ -31,7 +28,7 @@ extern int DoWinsock_Single(
 	int only_changes,
 	int no_statistics,
 	int giveup_count,
-	tee &out,
+	class tee &out,
 	int use_source_address,
 	const char *src_address,
 	bool blocking,
@@ -68,7 +65,7 @@ extern int DoWinsock_Multi(
 	int giveup_count,
 	int file_times_to_loop,
 	char* urlfile,
-	tee &out,
+	class tee &out,
 	int use_source_address,
 	const char *src_address,
 	bool blocking,

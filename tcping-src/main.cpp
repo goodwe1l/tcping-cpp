@@ -411,7 +411,7 @@ int main(int argc, char* argv[]) {
         if (!strcmp(argv[x], "-v") || !strcmp(argv[x], "--version") ) {
             //cout << "tcping.exe 0.30 Nov 13 2015" << endl;
 			cout << "tcping " << TCPING_VERSION << " " << TCPING_DATE << endl;
-            cout << "编译日期: " << __DATE__ << " " << __TIME__ <<  endl;
+            cout << "编译日期: " << TCPING_DATE << endl;
             cout << endl;
             cout << "tcping 原始版本由 Eli Fulkerson 开发" << endl;
             cout << "跨平台适配版支持 Windows/Linux/macOS" << endl;
@@ -421,9 +421,8 @@ int main(int argc, char* argv[]) {
             return 1;
         }
 	}
-
 	// open our logfile, if applicable
-	tee out;	if (use_logfile == 1) {
+	class tee out;	if (use_logfile == 1) {
 		if (tee_mode_append == true) {
 			out.OpenAppend(logfile);
 		} else {
