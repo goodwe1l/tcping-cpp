@@ -9,6 +9,7 @@
     #include <stdio.h> // 添加stdio.h以支持printf函数
 #elif defined(__linux__)
     #define OS_LINUX
+    #define _POSIX_C_SOURCE 199309L // 启用 clock_gettime
     #include <stdio.h> // 添加stdio.h以支持printf函数
 #else
     #error "不支持的平台"

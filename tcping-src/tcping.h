@@ -1,3 +1,7 @@
+
+// 前向声明
+class tee;
+
 extern int DoWinsock_Single(
 	const char* pcHost,
 	int nPort,
