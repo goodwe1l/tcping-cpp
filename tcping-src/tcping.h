@@ -2,6 +2,8 @@
 // 前向声明
 class tee;
 
+#include "tee.h"
+
 extern int DoWinsock_Single(
 	const char* pcHost,
 	int nPort,

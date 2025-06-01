@@ -1,3 +1,6 @@
+#ifndef TEE_H
+#define TEE_H
+
 #include <fstream>
 #include <stdio.h>
 
@@ -22,4 +25,6 @@ private:
     int flag;
 	bool enable_output;
 };
+
+#endif // TEE_H
 
